@@ -1,114 +1,15 @@
+# gui.py
+
 import tkinter as tk
-from tkinter import ttk
-import math
-import os
-import csv
-import openpyxl
-from openpyxl.utils import get_column_letter
-from tkinter import messagebox
-from pathlib import Path
+from tkinter import ttk, messagebox
+from datos import (
+    FOCALES_ESTANDAR, RESOLUCIONES_TIPICAS, SENSOR_HEIGHT_MM, SENSOR_WIDTH_MM,
+    CANVAS_WIDTH, CANVAS_HEIGHT, dms_a_grados, calcular_fov_en_px, RES_X, RES_Y,
+    actualizar_sensor_actual
+)
+from utils import guardar_objeto_en_csv, leer_historial, exportar_excel_desde_csv
 
 
-TIPOS_SENSOR = {
-    "Canon Full-Frame": (36.0, 24.0),
-    "Nikon Full-Frame": (35.9, 24.0),
-    "Sony Full-Frame": (35.8, 23.9),
-    "Canon APS-C": (22.3, 14.9),
-    "Nikon APS-C": (23.5, 15.6),
-    "Sony APS-C": (23.5, 15.6),
-}
-
-RESOLUCIONES_TIPICAS = {
-    "Nikon": {
-        "APS-C": {
-            "12MP": (4288, 2848),
-            "24MP": (6016, 4016)
-        },
-        "Full-Frame": {
-            "12MP": (4256, 2832),
-            "24MP": (6048, 4024),
-            "45MP": (8256, 5504)  # Nikon D850
-        }
-    },
-    "Canon": {
-        "APS-C": {
-            "12MP": (4272, 2848),
-            "24MP": (6000, 4000)
-        },
-        "Full-Frame": {
-            "12MP": None,  # Raro
-            "24MP": (6000, 4000),
-            "45MP": (8192, 5464)  # Canon R5
-        }
-    },
-    "Sony": {
-        "APS-C": {
-            "12MP": (4272, 2848),
-            "24MP": (6000, 4000)
-        },
-        "Full-Frame": {
-            "12MP": (4240, 2832),
-            "24MP": (6000, 4000),
-            "61MP": (9504, 6336)  # Sony A7R IV/V
-        }
-    }
-}
-
-
-
-# ========================
-# CONFIGURACIÓN DEL SENSOR
-# ========================
-sensor_actual_marca = "Nikon"
-sensor_actual_tipo = "APS-C"
-megapixeles_actual = "24MP"
-
-SENSOR_WIDTH_MM, SENSOR_HEIGHT_MM = TIPOS_SENSOR[f"{sensor_actual_marca} {sensor_actual_tipo}"]
-RES_X, RES_Y = RESOLUCIONES_TIPICAS[sensor_actual_marca][sensor_actual_tipo][megapixeles_actual]
-PIXEL_SIZE_X = SENSOR_WIDTH_MM / RES_X
-PIXEL_SIZE_Y = SENSOR_HEIGHT_MM / RES_Y
-
-
-
-# ======================
-# PARÁMETROS DE CÁLCULO
-# ======================
-FOCALES_ESTANDAR = [18, 24, 35, 50, 70, 85, 100, 150, 200, 300, 500, 650, 750, 900, 1000, 1250, 1500, 1800]
-UMBRAL_PIXELES = 15000
-CANVAS_WIDTH = 300
-CANVAS_HEIGHT = 200
-
-# Ruta personalizada
-ARCHIVO_SALIDA = Path(__file__).resolve().parent / "historial" / "objetos guardados.csv"
-ARCHIVO_SALIDA.parent.mkdir(parents=True, exist_ok=True)
-
-# =======================
-# FUNCIONES AUXILIARES
-# =======================
-def dms_a_grados(d, m, s):
-    try:
-        d_val = float(d) if d.strip() != "" else 0.0
-        m_val = float(m) if m.strip() != "" else 0.0
-        s_val = float(s) if s.strip() != "" else 0.0
-        return abs(d_val) + m_val / 60 + s_val / 3600
-    except:
-        return None
-
-def calcular_fov_en_px(obj_deg, focal):
-    fov_sensor_x = (SENSOR_WIDTH_MM / focal) * (180 / math.pi)
-    fov_sensor_y = (SENSOR_HEIGHT_MM / focal) * (180 / math.pi)
-    px_por_grado_x = RES_X / fov_sensor_x
-    px_por_grado_y = RES_Y / fov_sensor_y
-    pixeles_x = obj_deg[0] * px_por_grado_x
-    pixeles_y = obj_deg[1] * px_por_grado_y
-    total_pixeles = pixeles_x * pixeles_y
-    porcentaje = (total_pixeles / (RES_X * RES_Y)) * 100
-    fotografiable = total_pixeles >= UMBRAL_PIXELES
-    return pixeles_x, pixeles_y, total_pixeles, porcentaje, fotografiable
-
-# =========================
-# CLASE PRINCIPAL DE APP
-# =========================
 class AstroFovToolApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -124,10 +25,7 @@ class AstroFovToolApp(tk.Tk):
         frame_izq.pack(side="left", fill="y", padx=10, pady=10)
         frame_der.pack(side="left", fill="both", padx=10, pady=10)
 
-        frame_sensor = ttk.LabelFrame(frame_izq, text="Datos del sensor")
-        frame_sensor.pack(fill="x", pady=5)
-
-        # Combo para seleccionar sensor
+        # Selector de sensor
         frame_sensor_select = ttk.LabelFrame(frame_izq, text="Seleccionar cámara")
         frame_sensor_select.pack(fill="x", pady=5)
 
@@ -155,6 +53,7 @@ class AstroFovToolApp(tk.Tk):
         self.frame_sensor_info = ttk.LabelFrame(frame_izq, text="Información del sensor")
         self.frame_sensor_info.pack(fill="x", pady=5)
 
+        from datos import SENSOR_WIDTH_MM, SENSOR_HEIGHT_MM, RES_X, RES_Y, PIXEL_SIZE_X, PIXEL_SIZE_Y
         self.label_tam_sensor = ttk.Label(self.frame_sensor_info,
                                           text=f"Tamaño sensor: {SENSOR_WIDTH_MM:.1f} mm x {SENSOR_HEIGHT_MM:.1f} mm")
         self.label_tam_sensor.pack(anchor="w", padx=10, pady=2)
@@ -166,16 +65,15 @@ class AstroFovToolApp(tk.Tk):
                                          text=f"Tamaño pixel: {PIXEL_SIZE_X * 1000:.3f} µm x {PIXEL_SIZE_Y * 1000:.3f} µm")
         self.label_px_sensor.pack(anchor="w", padx=10, pady=2)
 
+        # Resto de interfaz
         frame_objeto = ttk.LabelFrame(frame_izq, text="Tamaño del objeto en cielo (DSO)")
         frame_objeto.pack(fill="x", pady=5)
         self.entries = {}
 
-        # Etiqueta para el nombre del objeto
         ttk.Label(frame_objeto, text="Nombre del objeto:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
         self.nombre_objeto = tk.Entry(frame_objeto)
         self.nombre_objeto.grid(row=2, column=1, columnspan=6, sticky="we")
 
-        # Entradas para ancho y alto con unidades separadas
         for i, label_text in enumerate(["Ancho:", "Alto:"]):
             ttk.Label(frame_objeto, text=label_text).grid(row=i, column=0, sticky="w", padx=5, pady=2)
             self.entries[i] = []
@@ -205,12 +103,7 @@ class AstroFovToolApp(tk.Tk):
         self.tree = ttk.Treeview(frame_der, columns=("Focal", "Px X", "Px Y", "Total", "%"), show="headings")
         for col in self.tree["columns"]:
             self.tree.heading(col, text=col)
-        # Ajustar anchos y centrar texto
-        self.tree.column("Focal", width=100, anchor="center")
-        self.tree.column("Px X", width=100, anchor="center")
-        self.tree.column("Px Y", width=100, anchor="center")
-        self.tree.column("Total", width=100, anchor="center")
-        self.tree.column("%", width=100, anchor="center")
+            self.tree.column(col, width=100, anchor="center")
         self.tree.pack(fill="both", expand=True)
 
         self.canvas = tk.Canvas(frame_der, width=CANVAS_WIDTH, height=CANVAS_HEIGHT, bg="white")
@@ -249,21 +142,9 @@ class AstroFovToolApp(tk.Tk):
         if marca and tipo and mp:
             res = RESOLUCIONES_TIPICAS[marca][tipo].get(mp)
             if res:
-                global SENSOR_WIDTH_MM, SENSOR_HEIGHT_MM, RES_X, RES_Y, PIXEL_SIZE_X, PIXEL_SIZE_Y
+                actualizar_sensor_actual(marca, tipo, mp)
+                from datos import SENSOR_WIDTH_MM, SENSOR_HEIGHT_MM, RES_X, RES_Y, PIXEL_SIZE_X, PIXEL_SIZE_Y
 
-                # Asumimos tamaños de sensor típicos
-                if tipo == "APS-C":
-                    SENSOR_WIDTH_MM = 23.5
-                    SENSOR_HEIGHT_MM = 15.6
-                else:  # Full-Frame
-                    SENSOR_WIDTH_MM = 36.0
-                    SENSOR_HEIGHT_MM = 24.0
-
-                RES_X, RES_Y = res
-                PIXEL_SIZE_X = SENSOR_WIDTH_MM / RES_X
-                PIXEL_SIZE_Y = SENSOR_HEIGHT_MM / RES_Y
-
-                # Actualizar etiquetas
                 self.label_tam_sensor.config(
                     text=f"Tamaño sensor: {SENSOR_WIDTH_MM:.1f} mm x {SENSOR_HEIGHT_MM:.1f} mm")
                 self.label_res_sensor.config(text=f"Resolución sensor: {RES_X} px x {RES_Y} px")
@@ -272,8 +153,9 @@ class AstroFovToolApp(tk.Tk):
 
                 messagebox.showinfo("Sensor actualizado", f"Nuevo sensor aplicado:\n{marca} {tipo} {mp}")
 
-                # Actualizar panel de info si querés (opcional)
-                # También podrías redibujar resultados si estaban visibles
+    def actualizar_estado_guardado(self):
+        self.boton_guardar.state(["!disabled"] if self.modo.get() == "tabla" else ["disabled"])
+        self.modo.trace_add("write", lambda *args: self.actualizar_estado_guardado())
 
     def mover_entre_entradas(self, event, i, j):
         if event.keysym == "Right":
@@ -289,14 +171,6 @@ class AstroFovToolApp(tk.Tk):
             elif i == 1:
                 self.entries[0][2].focus()
 
-    def actualizar_estado_guardado(self):
-        if self.modo.get() == "tabla":
-            self.boton_guardar.state(["!disabled"])
-        else:
-            self.boton_guardar.state(["disabled"])
-
-        self.modo.trace_add("write", lambda *args: self.actualizar_estado_guardado())
-
     def mostrar_resultados(self):
         for row in self.tree.get_children():
             self.tree.delete(row)
@@ -305,13 +179,17 @@ class AstroFovToolApp(tk.Tk):
         deg_x = dms_a_grados(*[e.get() for e in self.entries[0]])
         deg_y = dms_a_grados(*[e.get() for e in self.entries[1]])
         if deg_x is None or deg_y is None:
-            messagebox.showwarning("Entrada inválida", "Por favor, ingrese valores válidos para ancho y alto.")
+            messagebox.showwarning("Entrada inv\u00e1lida", "Por favor, ingrese valores v\u00e1lidos para ancho y alto.")
             return
 
         self.resultados = []
         focales = FOCALES_ESTANDAR if self.modo.get() == "tabla" else [float(self.focal_entry.get())]
         for f in focales:
-            px_x, px_y, total, pct, fot = calcular_fov_en_px((deg_x, deg_y), f)
+            px_x, px_y, total, pct, fot = calcular_fov_en_px(
+                (deg_x, deg_y), f,
+                SENSOR_WIDTH_MM, SENSOR_HEIGHT_MM,
+                RES_X, RES_Y
+            )
             self.resultados.append({
                 "f": f, "px_x": px_x, "px_y": px_y,
                 "total": total, "porcentaje": pct, "fotografiable": fot
@@ -337,8 +215,8 @@ class AstroFovToolApp(tk.Tk):
 
     def dibujar_canvas(self, res):
         self.canvas.delete("all")
-        escala_x = CANVAS_WIDTH / RES_X
-        escala_y = CANVAS_HEIGHT / RES_Y
+        escala_x = CANVAS_WIDTH / 6000  # valor base gen\u00e9rico
+        escala_y = CANVAS_HEIGHT / 4000
         w = res["px_x"] * escala_x
         h = res["px_y"] * escala_y
         x0 = (CANVAS_WIDTH - w) / 2
@@ -351,74 +229,18 @@ class AstroFovToolApp(tk.Tk):
         self.canvas.create_text(CANVAS_WIDTH/2, CANVAS_HEIGHT + 10, anchor="n", text=f"{res['porcentaje']:.3f}% del sensor", fill=color, font=("Arial", 10))
 
     def guardar_objeto(self):
-        if self.modo.get() != "tabla":
+        if self.modo.get() != "tabla" or not self.resultados:
             return
-
         nombre = self.nombre_objeto.get().strip()
-        if not nombre or not self.resultados:
+        if not nombre:
             return
-
         deg_x = dms_a_grados(*[e.get() for e in self.entries[0]])
         deg_y = dms_a_grados(*[e.get() for e in self.entries[1]])
-
-        # Leer todo el archivo actual si existe
-        filas_guardadas = []
-        if os.path.exists(ARCHIVO_SALIDA):
-            with open(ARCHIVO_SALIDA, newline="") as f:
-                reader = csv.reader(f)
-                filas_guardadas = list(reader)
-
-        # Verificar si el nombre ya existe
-        nombre_existente = any(fila and fila[0].strip() == nombre for fila in filas_guardadas if fila)
-
-        if nombre_existente:
-            sobrescribir = messagebox.askyesno("Objeto ya guardado",
-                                               f"Ya existe un objeto llamado '{nombre}'.\n¿Desea sobrescribirlo?")
-            if not sobrescribir:
-                return
-            # Eliminar entradas anteriores con ese nombre y la línea en blanco siguiente (si la hay)
-            nuevas_filas_guardadas = []
-            i = 0
-            while i < len(filas_guardadas):
-                fila = filas_guardadas[i]
-                if fila and fila[0].strip() == nombre:
-                    # Saltar este bloque
-                    i += 1
-                    while i < len(filas_guardadas) and filas_guardadas[i] and filas_guardadas[i][0].strip() != "":
-                        i += 1
-                    # También saltar la línea en blanco siguiente si existe
-                    if i < len(filas_guardadas) and (
-                            not filas_guardadas[i] or all(c.strip() == "" for c in filas_guardadas[i])):
-                        i += 1
-                else:
-                    nuevas_filas_guardadas.append(fila)
-                    i += 1
-
-            filas_guardadas = nuevas_filas_guardadas
-
-        # Agregar nuevas filas
-        nuevas_filas = []
-        for res in self.resultados:
-            nuevas_filas.append([
-                nombre,
-                f"{deg_x:.6f}",
-                f"{deg_y:.6f}",
-                f"{res['f']}mm",
-                f"{res['px_x']:.1f}",
-                f"{res['px_y']:.1f}",
-                f"{res['total']:.0f}",
-                f"{res['porcentaje']:.3f}",
-                "Sí" if res['fotografiable'] else "No"
-            ])
-        nuevas_filas.append([])  # Línea en blanco al final del bloque
-
-        # Escribir archivo actualizado
-        with open(str(ARCHIVO_SALIDA), "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerows(filas_guardadas + nuevas_filas)
+        guardar_objeto_en_csv(nombre, deg_x, deg_y, self.resultados)
 
     def ver_historial(self):
-        if not os.path.exists(ARCHIVO_SALIDA):
+        datos = leer_historial()
+        if not datos:
             messagebox.showinfo("Historial vacío", "No se han guardado objetos aún.")
             return
 
@@ -426,49 +248,14 @@ class AstroFovToolApp(tk.Tk):
         popup.title("Historial de objetos guardados")
         popup.geometry("820x400")
 
-        tree_hist = ttk.Treeview(popup, columns=(
-        "Nombre", "Ancho", "Alto", "Focal", "Px X", "Px Y", "Total", "%", "¿Fotografiable?"), show="headings")
+        tree_hist = ttk.Treeview(popup, columns=("Nombre", "Ancho", "Alto", "Focal", "Px X", "Px Y", "Total", "%", "¿Fotografiable?"), show="headings")
         for col in tree_hist["columns"]:
             tree_hist.heading(col, text=col)
             tree_hist.column(col, width=80, anchor="center")
         tree_hist.pack(fill="both", expand=True, padx=10, pady=10)
 
-        with open(ARCHIVO_SALIDA, newline="") as f:
-            reader = csv.reader(f)
-            for row in reader:
-                tree_hist.insert("", "end", values=row)
+        for row in datos:
+            tree_hist.insert("", "end", values=row)
 
-        ttk.Button(popup, text="Exportar a Excel", command=self.exportar_excel).pack(pady=10)
+        ttk.Button(popup, text="Exportar a Excel", command=exportar_excel_desde_csv).pack(pady=10)
 
-    def exportar_excel(self):
-        if not os.path.exists(ARCHIVO_SALIDA):
-            messagebox.showerror("Error", "No hay datos para exportar.")
-            return
-
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Historial DSO"
-
-        headers = ["Nombre", "Ancho (°)", "Alto (°)", "Focal", "Px X", "Px Y", "Total px", "% Sensor",
-                   "¿Fotografiable?"]
-        for col, header in enumerate(headers, start=1):
-            ws.cell(row=1, column=col, value=header)
-
-        with open(ARCHIVO_SALIDA, newline="") as f:
-            reader = csv.reader(f)
-            for row_idx, fila in enumerate(reader, start=2):
-                for col_idx, valor in enumerate(fila, start=1):
-                    ws.cell(row=row_idx, column=col_idx, value=valor)
-
-        for i in range(1, len(headers) + 1):
-            ws.column_dimensions[get_column_letter(i)].width = 16
-
-        ruta_excel = str(ARCHIVO_SALIDA).replace(".csv", ".xlsx")
-        wb.save(ruta_excel)
-
-        messagebox.showinfo("Éxito", f"Historial exportado a:\n{ruta_excel}")
-
-
-if __name__ == "__main__":
-    app = AstroFovToolApp()
-    app.mainloop()
