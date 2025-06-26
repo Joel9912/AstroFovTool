@@ -9,15 +9,66 @@ from tkinter import messagebox
 from pathlib import Path
 
 
+TIPOS_SENSOR = {
+    "Canon Full-Frame": (36.0, 24.0),
+    "Nikon Full-Frame": (35.9, 24.0),
+    "Sony Full-Frame": (35.8, 23.9),
+    "Canon APS-C": (22.3, 14.9),
+    "Nikon APS-C": (23.5, 15.6),
+    "Sony APS-C": (23.5, 15.6),
+}
+
+RESOLUCIONES_TIPICAS = {
+    "Nikon": {
+        "APS-C": {
+            "12MP": (4288, 2848),
+            "24MP": (6016, 4016)
+        },
+        "Full-Frame": {
+            "12MP": (4256, 2832),
+            "24MP": (6048, 4024),
+            "45MP": (8256, 5504)  # Nikon D850
+        }
+    },
+    "Canon": {
+        "APS-C": {
+            "12MP": (4272, 2848),
+            "24MP": (6000, 4000)
+        },
+        "Full-Frame": {
+            "12MP": None,  # Raro
+            "24MP": (6000, 4000),
+            "45MP": (8192, 5464)  # Canon R5
+        }
+    },
+    "Sony": {
+        "APS-C": {
+            "12MP": (4272, 2848),
+            "24MP": (6000, 4000)
+        },
+        "Full-Frame": {
+            "12MP": (4240, 2832),
+            "24MP": (6000, 4000),
+            "61MP": (9504, 6336)  # Sony A7R IV/V
+        }
+    }
+}
+
+
+
 # ========================
 # CONFIGURACIÓN DEL SENSOR
 # ========================
-SENSOR_WIDTH_MM = 23.5
-SENSOR_HEIGHT_MM = 15.6
-RES_X = 6016
-RES_Y = 4016
+sensor_actual_marca = "Nikon"
+sensor_actual_tipo = "APS-C"
+megapixeles_actual = "24MP"
+
+SENSOR_WIDTH_MM, SENSOR_HEIGHT_MM = TIPOS_SENSOR[f"{sensor_actual_marca} {sensor_actual_tipo}"]
+RES_X, RES_Y = RESOLUCIONES_TIPICAS[sensor_actual_marca][sensor_actual_tipo][megapixeles_actual]
 PIXEL_SIZE_X = SENSOR_WIDTH_MM / RES_X
 PIXEL_SIZE_Y = SENSOR_HEIGHT_MM / RES_Y
+
+
 
 # ======================
 # PARÁMETROS DE CÁLCULO
@@ -28,7 +79,7 @@ CANVAS_WIDTH = 300
 CANVAS_HEIGHT = 200
 
 # Ruta personalizada
-ARCHIVO_SALIDA = Path("D:/Usuario/Escritorio/Astro/AstroFovTool/objetos_guardados.csv")
+ARCHIVO_SALIDA = Path(__file__).resolve().parent / "historial" / "objetos guardados.csv"
 ARCHIVO_SALIDA.parent.mkdir(parents=True, exist_ok=True)
 
 # =======================
@@ -73,11 +124,47 @@ class AstroFovToolApp(tk.Tk):
         frame_izq.pack(side="left", fill="y", padx=10, pady=10)
         frame_der.pack(side="left", fill="both", padx=10, pady=10)
 
-        frame_sensor = ttk.LabelFrame(frame_izq, text="Datos del sensor Nikon D3300")
+        frame_sensor = ttk.LabelFrame(frame_izq, text="Datos del sensor")
         frame_sensor.pack(fill="x", pady=5)
-        ttk.Label(frame_sensor, text=f"Tamaño sensor: {SENSOR_WIDTH_MM} mm x {SENSOR_HEIGHT_MM} mm").pack(anchor="w", padx=10, pady=2)
-        ttk.Label(frame_sensor, text=f"Resolución sensor: {RES_X} px x {RES_Y} px").pack(anchor="w", padx=10, pady=2)
-        ttk.Label(frame_sensor, text=f"Tamaño pixel: {PIXEL_SIZE_X * 1000:.3f} µm x {PIXEL_SIZE_Y * 1000:.3f} µm").pack(anchor="w", padx=10, pady=2)
+
+        # Combo para seleccionar sensor
+        frame_sensor_select = ttk.LabelFrame(frame_izq, text="Seleccionar cámara")
+        frame_sensor_select.pack(fill="x", pady=5)
+
+        self.marca_var = tk.StringVar()
+        self.tipo_var = tk.StringVar()
+        self.mp_var = tk.StringVar()
+
+        ttk.Label(frame_sensor_select, text="Marca:").grid(row=0, column=0, padx=5, pady=2, sticky="e")
+        self.combo_marca = ttk.Combobox(frame_sensor_select, textvariable=self.marca_var, state="readonly")
+        self.combo_marca["values"] = list(RESOLUCIONES_TIPICAS.keys())
+        self.combo_marca.grid(row=0, column=1, padx=5, pady=2)
+        self.combo_marca.bind("<<ComboboxSelected>>", self.actualizar_tipos)
+
+        ttk.Label(frame_sensor_select, text="Tipo:").grid(row=1, column=0, padx=5, pady=2, sticky="e")
+        self.combo_tipo = ttk.Combobox(frame_sensor_select, textvariable=self.tipo_var, state="readonly")
+        self.combo_tipo.grid(row=1, column=1, padx=5, pady=2)
+        self.combo_tipo.bind("<<ComboboxSelected>>", self.actualizar_megapixeles)
+
+        ttk.Label(frame_sensor_select, text="MP:").grid(row=2, column=0, padx=5, pady=2, sticky="e")
+        self.combo_mp = ttk.Combobox(frame_sensor_select, textvariable=self.mp_var, state="readonly")
+        self.combo_mp.grid(row=2, column=1, padx=5, pady=2)
+        self.combo_mp.bind("<<ComboboxSelected>>", self.aplicar_config_sensor)
+
+        # Panel de información del sensor
+        self.frame_sensor_info = ttk.LabelFrame(frame_izq, text="Información del sensor")
+        self.frame_sensor_info.pack(fill="x", pady=5)
+
+        self.label_tam_sensor = ttk.Label(self.frame_sensor_info,
+                                          text=f"Tamaño sensor: {SENSOR_WIDTH_MM:.1f} mm x {SENSOR_HEIGHT_MM:.1f} mm")
+        self.label_tam_sensor.pack(anchor="w", padx=10, pady=2)
+
+        self.label_res_sensor = ttk.Label(self.frame_sensor_info, text=f"Resolución sensor: {RES_X} px x {RES_Y} px")
+        self.label_res_sensor.pack(anchor="w", padx=10, pady=2)
+
+        self.label_px_sensor = ttk.Label(self.frame_sensor_info,
+                                         text=f"Tamaño pixel: {PIXEL_SIZE_X * 1000:.3f} µm x {PIXEL_SIZE_Y * 1000:.3f} µm")
+        self.label_px_sensor.pack(anchor="w", padx=10, pady=2)
 
         frame_objeto = ttk.LabelFrame(frame_izq, text="Tamaño del objeto en cielo (DSO)")
         frame_objeto.pack(fill="x", pady=5)
@@ -133,6 +220,60 @@ class AstroFovToolApp(tk.Tk):
 
         self.tree.tag_configure("verde", background="lightgreen")
         self.tree.tag_configure("rojo", background="lightcoral")
+
+    def actualizar_tipos(self, event=None):
+        marca = self.marca_var.get()
+        if marca:
+            tipos = list(RESOLUCIONES_TIPICAS[marca].keys())
+            self.combo_tipo["values"] = tipos
+            self.combo_tipo.set("")
+            self.combo_mp.set("")
+            self.combo_mp["values"] = []
+
+    def actualizar_megapixeles(self, event=None):
+        marca = self.marca_var.get()
+        tipo = self.tipo_var.get()
+        if marca and tipo:
+            mp_values = [
+                mp for mp, res in RESOLUCIONES_TIPICAS[marca][tipo].items()
+                if res is not None
+            ]
+            self.combo_mp["values"] = mp_values
+            self.combo_mp.set("")
+
+    def aplicar_config_sensor(self, event=None):
+        marca = self.marca_var.get()
+        tipo = self.tipo_var.get()
+        mp = self.mp_var.get()
+
+        if marca and tipo and mp:
+            res = RESOLUCIONES_TIPICAS[marca][tipo].get(mp)
+            if res:
+                global SENSOR_WIDTH_MM, SENSOR_HEIGHT_MM, RES_X, RES_Y, PIXEL_SIZE_X, PIXEL_SIZE_Y
+
+                # Asumimos tamaños de sensor típicos
+                if tipo == "APS-C":
+                    SENSOR_WIDTH_MM = 23.5
+                    SENSOR_HEIGHT_MM = 15.6
+                else:  # Full-Frame
+                    SENSOR_WIDTH_MM = 36.0
+                    SENSOR_HEIGHT_MM = 24.0
+
+                RES_X, RES_Y = res
+                PIXEL_SIZE_X = SENSOR_WIDTH_MM / RES_X
+                PIXEL_SIZE_Y = SENSOR_HEIGHT_MM / RES_Y
+
+                # Actualizar etiquetas
+                self.label_tam_sensor.config(
+                    text=f"Tamaño sensor: {SENSOR_WIDTH_MM:.1f} mm x {SENSOR_HEIGHT_MM:.1f} mm")
+                self.label_res_sensor.config(text=f"Resolución sensor: {RES_X} px x {RES_Y} px")
+                self.label_px_sensor.config(
+                    text=f"Tamaño pixel: {PIXEL_SIZE_X * 1000:.3f} µm x {PIXEL_SIZE_Y * 1000:.3f} µm")
+
+                messagebox.showinfo("Sensor actualizado", f"Nuevo sensor aplicado:\n{marca} {tipo} {mp}")
+
+                # Actualizar panel de info si querés (opcional)
+                # También podrías redibujar resultados si estaban visibles
 
     def mover_entre_entradas(self, event, i, j):
         if event.keysym == "Right":
